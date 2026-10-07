@@ -2,7 +2,8 @@
 """
 Object Detection Comparison Pipeline
 =====================================
-Runs 7 detection models on input images and produces vertical comparison tapestries.
+Runs 7 detection models on input images and produces 2x4 comparison tapestries.
+Optionally writes every raw detection (box, label, score) to a JSON file.
 
 Models: DETR, SSD, FCOS, Faster R-CNN, RetinaNet, Mask R-CNN, YOLOv11
 
@@ -11,12 +12,14 @@ Usage:
 
 Example:
     python run_detectors.py --input ./images --output ./results --width 1600 --threshold 0.50
+    python run_detectors.py --input ./images --output ./results --save-json ./results/detections.json
 
 Setup:
     pip install -r requirements.txt
 """
 
 import argparse
+import json
 import os
 import sys
 import warnings
@@ -29,6 +32,11 @@ from torchvision.utils import draw_bounding_boxes
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 from tqdm import tqdm
+
+try:  # AVIF support for Pillow builds without native libavif
+    import pillow_avif  # noqa: F401
+except ImportError:
+    pass
 
 warnings.filterwarnings("ignore")
 
@@ -88,7 +96,12 @@ def get_device():
 
 def load_torchvision_model(model_fn, device):
     """Load a torchvision detection model with COCO-pretrained weights."""
-    model = model_fn(pretrained=True)
+    # torchvision >= 0.13 uses weights=; "DEFAULT" is the same COCO checkpoint
+    # that pretrained=True loaded. Older versions only accept pretrained=True.
+    try:
+        model = model_fn(weights="DEFAULT")
+    except TypeError:
+        model = model_fn(pretrained=True)
     model.eval()
     # MPS has issues with some detection ops; fall back to CPU for inference
     # torchvision detection models work most reliably on CPU
@@ -106,7 +119,6 @@ def load_all_models(device):
     print("\n[1/7] Loading DETR...")
     try:
         from transformers import DetrImageProcessor, DetrForObjectDetection, DetrConfig
-        import json
 
         detr_processor = DetrImageProcessor.from_pretrained(
             "facebook/detr-resnet-50", revision="no_timm"
@@ -293,6 +305,8 @@ def get_font(size=16):
         "/System/Library/Fonts/SFNSDisplay.ttf",
         "/Library/Fonts/Arial.ttf",
         "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "C:/Windows/Fonts/arial.ttf",
     ]
     for fp in font_paths:
         if os.path.exists(fp):
@@ -492,6 +506,12 @@ def main():
         default=0.50,
         help="Confidence threshold for detections (default: 0.50)",
     )
+    parser.add_argument(
+        "--save-json",
+        type=str,
+        default=None,
+        help="Optional path of a JSON file to write all raw detections to",
+    )
     args = parser.parse_args()
 
     CONFIDENCE_THRESHOLD = args.threshold
@@ -536,6 +556,8 @@ def main():
     print(f"\n  Successfully loaded {len(models)}/{len(MODEL_COLORS)} models")
     print(f"{'='*60}\n")
 
+    all_detections = {}
+
     # Process each image
     for img_path in tqdm(image_files, desc="Processing images"):
         tqdm.write(f"\n  Processing: {img_path.name}")
@@ -552,6 +574,14 @@ def main():
                 n_det = len(boxes) if torch.is_tensor(boxes) else 0
                 tqdm.write(f"    {model_name:>15s}: {n_det} detections")
                 model_results[model_name] = (boxes, labels, scores)
+                all_detections.setdefault(img_path.name, {})[model_name] = [
+                    {
+                        "label": labels[i],
+                        "score": round(float(scores[i]), 4),
+                        "box_xyxy": [round(float(v), 1) for v in boxes[i].tolist()],
+                    }
+                    for i in range(n_det)
+                ]
             except Exception as e:
                 tqdm.write(f"    {model_name:>15s}: [ERROR] {e}")
 
@@ -563,6 +593,15 @@ def main():
         out_path = output_dir / out_name
         tapestry.save(out_path, quality=95)
         tqdm.write(f"    -> Saved: {out_path.name}")
+
+    if args.save_json:
+        Path(args.save_json).parent.mkdir(parents=True, exist_ok=True)
+        with open(args.save_json, "w") as f:
+            json.dump(
+                {"threshold": CONFIDENCE_THRESHOLD, "detections": all_detections},
+                f, indent=1,
+            )
+        print(f"  Raw detections written to: {args.save_json}")
 
     print(f"\n{'='*60}")
     print(f"  DONE! Results saved to: {output_dir}")
