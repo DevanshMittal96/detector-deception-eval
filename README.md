@@ -1,4 +1,4 @@
-# Edge-Case Detection Failures in Autonomous Driving: A Comparative Visual Taxonomy
+# When Detectors Are Deceived: Edge Cases That Fool Camera Object Detectors
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-EE4C2C.svg)](https://pytorch.org/)
@@ -25,13 +25,15 @@ The pipeline runs every input image through seven COCO-pretrained detectors unde
 
 ## Taxonomy of Failure Categories
 
-The edge-case images are organised into three principal failure categories:
+The edge-case images are organised into four failure families:
 
-**1. Anthropomorphic Mimicry** — Mannequins, life-size cardboard cutouts, printed faces on posters, celebrity T-shirts, and portrait paintings that fool detectors into false "person" classifications.
+**1. Anthropomorphic Mimicry** — Mannequins, life-size cardboard cutouts, printed faces on posters, printed T-shirts, portrait paintings, statues, scarecrows, animal sculptures, 3D anamorphic billboards, and printed bus adverts that fool detectors into false "person" or animal classifications.
 
-**2. Optical-Geometric Distortions** — Rearview mirrors, shop-window reflections, and wet-road specular surfaces that create phantom object duplicates.
+**2. Optical-Geometric Distortions** — Rear-view mirrors and puddle reflections that create phantom object duplicates.
 
-**3. Environmental Degradation** — Fog, heavy rain, wet tunnels, and low-light conditions where atmospheric scattering and occlusion cause missed detections.
+**3. Environmental Degradation** — Fog, rain on the windshield, and motion blur, where scattering, droplets, and smear cause missed detections and absurd phantom labels.
+
+**4. Vocabulary Gaps** — Objects outside the 80 COCO classes, or nested inside them: cars riding on car transporters reported as extra road agents, and rickshaws, mobility scooters, cargo trikes, head-loads, and horse carts forced into the nearest wrong class.
 
 ---
 
@@ -41,7 +43,11 @@ The edge-case images are organised into three principal failure categories:
 .
 ├── run_detectors.py      # Main detection pipeline
 ├── requirements.txt      # Python dependencies
-├── IMAGE_SOURCES.md      # Links to all edge-case images (categorised)
+├── IMAGE_SOURCES.md      # Source URL and licence for every image
+├── data/                 # Openly licensed images, tapestries, raw detections, verdicts
+│   ├── figures/          #   24 scenes used in the paper's original three families
+│   ├── alternates/       #   22 alternative photos for the same scenes
+│   └── new_cases/        #   19 new scenes (statues, 3D billboards, vocabulary gaps, ...)
 ├── LICENSE               # MIT License
 ├── README.md             # This file
 ├── images/               # Place downloaded images here (not tracked by git)
@@ -61,8 +67,8 @@ The edge-case images are organised into three principal failure categories:
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/<your-username>/edge-case-detection-taxonomy.git
-cd edge-case-detection-taxonomy
+git clone https://github.com/DevanshMittal96/detector-deception-eval.git
+cd detector-deception-eval
 ```
 
 ### 2. Install Dependencies
@@ -71,18 +77,16 @@ cd edge-case-detection-taxonomy
 pip install -r requirements.txt
 ```
 
-### 3. Download the Edge-Case Images
+### 3. Get the Edge-Case Images
 
-We do not redistribute the images due to copyright. Instead, [`IMAGE_SOURCES.md`](IMAGE_SOURCES.md) provides the original source URL for every image used in the paper, organised by failure category.
+All images used in the paper are openly licensed (Unsplash, Pexels, Wikimedia Commons) and are included under [`data/`](data/). Each file is named `<scene>_<pick|altN>_<source>-<id>.<ext>`, so the source can be recovered from the name; [`IMAGE_SOURCES.md`](IMAGE_SOURCES.md) and the `data/SOURCES_*.csv` files give the full URL for each.
 
-1. Open `IMAGE_SOURCES.md` and visit each link.
-2. Download the images and place them in the `images/` directory.
-3. Any filename is fine — the pipeline processes all supported formats (`.jpg`, `.jpeg`, `.png`, `.webp`, `.avif`, `.bmp`, `.tiff`).
+Any folder of images works as input — the pipeline processes all supported formats (`.jpg`, `.jpeg`, `.png`, `.webp`, `.avif`, `.bmp`, `.tiff`).
 
 ### 4. Run the Pipeline
 
 ```bash
-python run_detectors.py --input ./images --output ./results
+python run_detectors.py --input ./data/new_cases/images --output ./results --save-json ./results/detections.json
 ```
 
 On first execution, the following model weights are downloaded automatically:
@@ -105,6 +109,7 @@ On first execution, the following model weights are downloaded automatically:
 | `--output` | `./results` | Path to output folder for comparative tapestries |
 | `--width` | `1600` | Total pixel width of the output tapestry grid |
 | `--threshold` | `0.50` | Confidence threshold τ applied uniformly to all models |
+| `--save-json` | — | Optional path; writes every box (label, score, `box_xyxy` in original pixels) per image and model |
 
 ### Example
 
@@ -117,7 +122,9 @@ python run_detectors.py --input ./images --output ./results --threshold 0.30 --w
 
 ## Output
 
-Each input image produces a single PNG file in the output directory, named `res_<original_stem>.png`. The tapestry arranges all seven model outputs in a 2×4 grid with colour-coded bounding boxes, dark title bars, and class labels with confidence scores.
+Each input image produces a single PNG file in the output directory, named `res_<original_stem>.png`. The tapestry arranges all seven model outputs in a 2×4 grid with colour-coded bounding boxes, dark title bars, and class labels with confidence scores. With `--save-json`, the raw detections are written as `{"threshold": τ, "detections": {image: {model: [...]}}}`.
+
+The tapestries, `detections.json`, and a per-scene `VERDICTS.md` (which models make each scene's intended error, with scores) for the paper's run are in `data/*/tapestries/` and `data/*/VERDICTS.md`.
 
 ---
 
@@ -128,11 +135,11 @@ All models use **COCO-pretrained** weights with **no domain-specific fine-tuning
 | Model | Framework | Weight Source | Pretrained Data |
 |-------|-----------|---------------|-----------------|
 | DETR | HuggingFace Transformers | `facebook/detr-resnet-50` (no_timm) | MS COCO |
-| SSD | torchvision | `ssd300_vgg16(pretrained=True)` | MS COCO |
-| FCOS | torchvision | `fcos_resnet50_fpn(pretrained=True)` | MS COCO |
-| Faster R-CNN | torchvision | `fasterrcnn_resnet50_fpn(pretrained=True)` | MS COCO |
-| RetinaNet | torchvision | `retinanet_resnet50_fpn(pretrained=True)` | MS COCO |
-| Mask R-CNN | torchvision | `maskrcnn_resnet50_fpn(pretrained=True)` | MS COCO |
+| SSD | torchvision | `ssd300_vgg16(weights="DEFAULT")` | MS COCO |
+| FCOS | torchvision | `fcos_resnet50_fpn(weights="DEFAULT")` | MS COCO |
+| Faster R-CNN | torchvision | `fasterrcnn_resnet50_fpn(weights="DEFAULT")` | MS COCO |
+| RetinaNet | torchvision | `retinanet_resnet50_fpn(weights="DEFAULT")` | MS COCO |
+| Mask R-CNN | torchvision | `maskrcnn_resnet50_fpn(weights="DEFAULT")` | MS COCO |
 | YOLOv11 | Ultralytics | `yolo11n.pt` | MS COCO |
 
 ---
@@ -142,12 +149,11 @@ All models use **COCO-pretrained** weights with **no domain-specific fine-tuning
 If you use this code or methodology in your research, please cite:
 
 ```bibtex
-@article{mittal2025edgecase,
-  title     = {Edge-Case Detection Failures in Autonomous Driving:
-               A Comparative Visual Taxonomy},
-  author    = {Mittal, Devansh},
+@article{mishra2026deceived,
+  title     = {When Detectors Are Deceived: A Field Guide to the Edge Cases
+               That Fool Camera Object Detectors in Intelligent Vehicles},
+  author    = {Mishra, Ashutosh and Mittal, Devansh},
   journal   = {IEEE Transactions on Intelligent Vehicles},
-  year      = {2025},
   note      = {Under review}
 }
 ```
@@ -158,4 +164,4 @@ If you use this code or methodology in your research, please cite:
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
-The edge-case images used in the study are **not** included in this repository and remain the property of their respective copyright holders. See [`IMAGE_SOURCES.md`](IMAGE_SOURCES.md) for original source links.
+The MIT License covers the code only. The images in `data/` remain the work of their photographers and are redistributed under their own licences (Unsplash License, Pexels License, or the Creative Commons / public-domain terms on each Wikimedia Commons file page). See [`IMAGE_SOURCES.md`](IMAGE_SOURCES.md) for every source link.
